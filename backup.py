@@ -4,10 +4,11 @@
 # V0.1: copy from sqlbackup
 # V0.2: copy to the same directory structure as the original
 # V0.3: backup dirs, single files and wildcard-files
+# V0.4: expanded glob so that wildcard can be used in the middle of a path
 
 import sys, datetime, subprocess, json, argparse, os, glob
 
-version = 'V0.3'
+version = 'V0.4'
 parser = argparse.ArgumentParser(description='store directories and files in cloud')
 parser.add_argument('--no-cloud', dest='store_in_cloud', action='store_false')
 parser.add_argument('--version', action='version', version=f'version: {version}')
@@ -26,12 +27,12 @@ def main():
         for item in items:
             print(f'{timestamp()}: >>> Backing up : {item} <<<<')
 
-            if os.path.isdir(item):
-                copy_dir(item, backup_path)
-            elif os.path.isfile(item):
-                copy_glob(item, backup_path)
-            elif '*' in item:
-                copy_glob(item, backup_path)
+            glob_list = glob.glob(item)
+            for glob_item in glob_list:
+                if os.path.isdir(glob_item):
+                    copy_dir(glob_item, backup_path)
+                elif os.path.isfile(glob_item):
+                    copy_file(glob_item, backup_path)
 
         print(f'{timestamp()}: Backup finished')
     except Exception as e:
@@ -39,15 +40,13 @@ def main():
         sys.exit()
 
 
-def copy_glob(path, backup_path):
-    files = glob.glob(path)
-    for file in files:
-        dir_name = os.path.dirname(file)
-        rclone = subprocess.run(f'rclone copy {file} {backup_path}/{dir_name}'.split())
-        if rclone.returncode == 0:
-            print(f'{timestamp()}: rclone success: {file}')
-        else:
-            print(f'{timestamp()}: Error, could not rclone: {file}')
+def copy_file(file, backup_path):
+    dir_name = os.path.dirname(file)
+    rclone = subprocess.run(f'rclone copy {file} {backup_path}/{dir_name}'.split())
+    if rclone.returncode == 0:
+        print(f'{timestamp()}: rclone success: {file}')
+    else:
+        print(f'{timestamp()}: Error, could not rclone: {file}')
 
 
 def copy_dir(path, backup_path):
