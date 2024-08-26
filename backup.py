@@ -5,14 +5,17 @@
 # V0.2: copy to the same directory structure as the original
 # V0.3: backup dirs, single files and wildcard-files
 # V0.4: expanded glob so that wildcard can be used in the middle of a path
+# V0.5: expanded with local backup (no rclone)
 
-import sys, datetime, subprocess, json, argparse, os, glob
+import sys, datetime, subprocess, json, argparse, os, glob, shutil
 
-version = 'V0.4'
+version = 'V0.5'
 parser = argparse.ArgumentParser(description='store directories and files in cloud')
 parser.add_argument('--no-cloud', dest='store_in_cloud', action='store_false')
 parser.add_argument('--version', action='version', version=f'version: {version}')
 program_arguments = parser.parse_args()
+
+local_backup = False
 
 def main():
     try:
@@ -20,9 +23,9 @@ def main():
         config = json.load(jf)
 
         backup_path = config['backup_path']
-        rclone = subprocess.run(f'rclone ls --max-depth 1 {backup_path}'.split())
-        if rclone.returncode != 0:
-            print(f'{timestamp()}: Error, could not rclone ls --max-depth 1 {backup_path}')
+        if not check_backup_path(backup_path):
+            print("Could not determine backup path, terminating...")
+            exit(-1)
         items = config['items']
         for item in items:
             print(f'{timestamp()}: >>> Backing up : {item} <<<<')
@@ -40,21 +43,49 @@ def main():
         sys.exit()
 
 
+def check_backup_path(backup_path):
+    global local_backup
+    try:
+        if os.path.isdir(backup_path):
+            local_backup = True
+            print("Local backup")
+            return True
+    except Exception:
+        try:
+            rclone = subprocess.run(f'rclone ls --max-depth 1 {backup_path}'.split())
+            if rclone.returncode == 0:
+                print("Remote backup, use rclone")
+                return True
+            else:
+                print(f'{timestamp()}: Error, could not rclone ls --max-depth 1 {backup_path}')
+                return False
+        except Exception:
+            return False
+
+
 def copy_file(file, backup_path):
-    dir_name = os.path.dirname(file)
-    rclone = subprocess.run(f'rclone copy {file} {backup_path}/{dir_name}'.split())
-    if rclone.returncode == 0:
-        print(f'{timestamp()}: rclone success: {file}')
+    if local_backup:
+        dest_file = os.path.join(backup_path, file[3:])
+        os.makedirs(os.path.dirname(dest_file), exist_ok=True)
+        shutil.copy2(file, dest_file)
     else:
-        print(f'{timestamp()}: Error, could not rclone: {file}')
+        dir_name = os.path.dirname(file)
+        rclone = subprocess.run(f'rclone copy {file} {backup_path}/{dir_name}'.split())
+        if rclone.returncode == 0:
+            print(f'{timestamp()}: rclone success: {file}')
+        else:
+            print(f'{timestamp()}: Error, could not rclone: {file}')
 
 
 def copy_dir(path, backup_path):
-    rclone = subprocess.run(f'rclone copy {path} {backup_path}/{path}'.split())
-    if rclone.returncode == 0:
-        print(f'{timestamp()}: rclone success: {path}')
+    if local_backup:
+        shutil.copytree(path, backup_path)
     else:
-        print(f'{timestamp()}: Error, could not rclone: {path}')
+        rclone = subprocess.run(f'rclone copy {path} {backup_path}/{path}'.split())
+        if rclone.returncode == 0:
+            print(f'{timestamp()}: rclone success: {path}')
+        else:
+            print(f'{timestamp()}: Error, could not rclone: {path}')
 
 
 def timestamp():
