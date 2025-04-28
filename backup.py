@@ -6,10 +6,11 @@
 # V0.3: backup dirs, single files and wildcard-files
 # V0.4: expanded glob so that wildcard can be used in the middle of a path
 # V0.5: expanded with local backup (no rclone)
+# V0.6: os.path.isdir does not raise exception
 
 import sys, datetime, subprocess, json, argparse, os, glob, shutil
 
-version = 'V0.5'
+version = 'V0.6'
 parser = argparse.ArgumentParser(description='store directories and files in cloud')
 parser.add_argument('--no-cloud', dest='store_in_cloud', action='store_false')
 parser.add_argument('--version', action='version', version=f'version: {version}')
@@ -45,22 +46,20 @@ def main():
 
 def check_backup_path(backup_path):
     global local_backup
+    if os.path.isdir(backup_path):
+        local_backup = True
+        print("Local backup")
+        return True
     try:
-        if os.path.isdir(backup_path):
-            local_backup = True
-            print("Local backup")
+        rclone = subprocess.run(f'rclone ls --max-depth 1 {backup_path}'.split())
+        if rclone.returncode == 0:
+            print("Remote backup, use rclone")
             return True
-    except Exception:
-        try:
-            rclone = subprocess.run(f'rclone ls --max-depth 1 {backup_path}'.split())
-            if rclone.returncode == 0:
-                print("Remote backup, use rclone")
-                return True
-            else:
-                print(f'{timestamp()}: Error, could not rclone ls --max-depth 1 {backup_path}')
-                return False
-        except Exception:
+        else:
+            print(f'{timestamp()}: Error, could not rclone ls --max-depth 1 {backup_path}')
             return False
+    except Exception:
+        return False
 
 
 def copy_file(file, backup_path):
